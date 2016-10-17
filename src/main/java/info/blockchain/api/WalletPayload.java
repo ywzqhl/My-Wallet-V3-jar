@@ -100,7 +100,7 @@ public class WalletPayload implements BaseApi {
 
         StringBuilder args = new StringBuilder();
 
-        String urlEncodedPayload = URLEncoder.encode(encryptedPayload.toString(), StandardCharsets.UTF_8.toString());
+        String urlEncodedPayload = URLEncoder.encode(encryptedPayload.toString());
 
         args.append("guid=");
         args.append(URLEncoder.encode(guid, "utf-8"));

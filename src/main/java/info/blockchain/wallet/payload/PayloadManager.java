@@ -4,8 +4,12 @@ import com.google.common.annotations.VisibleForTesting;
 import info.blockchain.api.ExternalEntropy;
 import info.blockchain.api.WalletPayload;
 import info.blockchain.bip44.Address;
+import info.blockchain.bip44.Chain;
+import info.blockchain.bip44.Wallet;
 import info.blockchain.wallet.exceptions.*;
 import info.blockchain.wallet.multiaddr.MultiAddrFactory;
+import info.blockchain.wallet.payment.data.SpendableUnspentOutputs;
+import info.blockchain.wallet.send.MyTransactionOutPoint;
 import info.blockchain.wallet.util.CharSequenceX;
 import info.blockchain.wallet.util.DoubleEncryptionFactory;
 import info.blockchain.wallet.util.PrivateKeyFactory;
@@ -296,6 +300,28 @@ public class PayloadManager {
                 payload.getDoubleEncryptionPbkdf2Iterations());
     }
 
+    public Wallet getDecryptedWallet(String secondPassword) throws DecryptionException {
+
+        if (validateSecondPassword(secondPassword)) {
+
+            try {
+                String encrypted_hex = payload.getHdWallet().getSeedHex();
+                String decrypted_hex = DoubleEncryptionFactory.getInstance().decrypt(
+                        encrypted_hex,
+                        payload.getSharedKey(),
+                        secondPassword,
+                        payload.getDoubleEncryptionPbkdf2Iterations());
+
+                return hdPayloadBridge.decryptWatchOnlyWallet(payload, decrypted_hex);
+            }catch (Exception e){
+                throw new DecryptionException(e.getMessage());
+            }
+
+        } else {
+            throw new DecryptionException("Second password validation error.");
+        }
+    }
+
     public boolean decryptDoubleEncryptedWallet(String secondPassword) {
 
         if (validateSecondPassword(secondPassword)) {
@@ -476,6 +502,22 @@ public class PayloadManager {
             e.printStackTrace();
             return null;
         }
+    }
+
+    public String getNextChangeAddress(int accountIndex) throws AddressFormatException {
+
+        int changeAddressIndex = payload.getHdWallet().getAccounts().get(accountIndex).getIdxChangeAddresses();
+
+        String xpub = getXpubFromAccountIndex(accountIndex);
+        return hdPayloadBridge.getAddressAt(xpub, Chain.CHANGE_CHAIN, changeAddressIndex).getAddressString();
+    }
+
+    public String getNextReceiveAddress(int accountIndex) throws AddressFormatException {
+
+        int receiveAddressIndex = payload.getHdWallet().getAccounts().get(accountIndex).getIdxReceiveAddresses();
+
+        String xpub = getXpubFromAccountIndex(accountIndex);
+        return hdPayloadBridge.getAddressAt(xpub, Chain.RECEIVE_CHAIN, receiveAddressIndex).getAddressString();
     }
 
     public ECKey getECKey(int accountIndex, String path) throws Exception {
@@ -730,5 +772,30 @@ public class PayloadManager {
      */
     public BlockchainWallet getBciWallet(){
         return bciWallet;
+    }
+
+    public List<ECKey> getHDKeys(String secondPassword, Account account, SpendableUnspentOutputs unspentOutputBundle) throws Exception {
+
+        List<ECKey> keys = new ArrayList<ECKey>();
+
+        for (MyTransactionOutPoint a : unspentOutputBundle.getSpendableOutputs()) {
+            String[] split = a.getPath().split("/");
+            int chain = Integer.parseInt(split[1]);
+            int addressIndex = Integer.parseInt(split[2]);
+
+            Wallet wallet;
+
+            if (payload.isDoubleEncrypted()) {
+                wallet = getDecryptedWallet(secondPassword);
+            } else {
+                wallet = this.wallet;
+            }
+
+            Address hd_address = wallet.getAccount(account.getRealIdx()).getChain(chain).getAddressAt(addressIndex);
+            ECKey walletKey = PrivateKeyFactory.getInstance().getKey(PrivateKeyFactory.WIF_COMPRESSED, hd_address.getPrivateKeyString());
+            keys.add(walletKey);
+        }
+
+        return keys;
     }
 }

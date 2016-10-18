@@ -187,41 +187,17 @@ public class Payment {
     }
 
     public void submitPayment(SpendableUnspentOutputs unspentOutputBundle,
-                                      Account account,
-                                      LegacyAddress legacyAddress,
-                                      String toAddress,
-                                      String changeAddress,
-                                      String note,
-                                      BigInteger bigIntFee,
-                                      BigInteger bigIntAmount,
-                                      boolean isWatchOnly,
-                                      String secondPassword,
-                                      SubmitPaymentListener listener) throws Exception {
-
-        //TODO - PayloadManager needs to be refactored out to make this method testable
-        //TODO - This method was pretty much just coppied out from android and modified slightly to retain stability
-        PayloadManager payloadManager = PayloadManager.getInstance();
-
-        final boolean isHD = account == null ? false : true;
-
-        //Get keys
-        HashMap<String, Address> keyMap = new HashMap<String, Address>();
-        if (isHD) {
-
-            for(MyTransactionOutPoint a : unspentOutputBundle.getSpendableOutputs()){
-                String[] split = a.getPath().split("/");
-                int chain = Integer.parseInt(split[1]);
-                int addressIndex = Integer.parseInt(split[2]);
-
-                Address address = payloadManager.getAddressAt(account.getRealIdx(), chain, addressIndex);
-                keyMap.put(address.getAddressString(), address);
-            }
-        }
+                              List<ECKey> keys,
+                              String toAddress,
+                              String changeAddress,
+                              BigInteger bigIntFee,
+                              BigInteger bigIntAmount,
+                              SubmitPaymentListener listener) throws Exception {
 
         final HashMap<String, BigInteger> receivers = new HashMap<String, BigInteger>();
         receivers.put(toAddress, bigIntAmount);
 
-        Pair<Transaction, Long> pair = null;
+        Pair<Transaction, Long> pair;
         pair = SendCoins.getInstance().makeTransaction(true,
                 unspentOutputBundle.getSpendableOutputs(),
                 receivers,
@@ -236,52 +212,7 @@ public class Payment {
         Long priority = pair.getRight();
 
         Wallet wallet = new Wallet(MainNetParams.get());
-        for (TransactionInput input : tx.getInputs()) {
-            byte[] scriptBytes = input.getOutpoint().getConnectedPubKeyScript();
-            String address = new BitcoinScript(scriptBytes).getAddress().toString();
-            ECKey walletKey = null;
-            try {
-
-                if (isHD) {
-                    Address hd_address = keyMap.get(address);
-                    walletKey =  PrivateKeyFactory.getInstance().getKey(PrivateKeyFactory.WIF_COMPRESSED, hd_address.getPrivateKeyString());
-
-                } else {
-                    if (!isWatchOnly && payloadManager.getPayload().isDoubleEncrypted()) {
-                        walletKey = legacyAddress.getECKey(new CharSequenceX(secondPassword));
-                    } else {
-                        walletKey = legacyAddress.getECKey();
-                    }
-                }
-            } catch (AddressFormatException afe) {
-                // skip add Watch Only Bitcoin Address key because already accounted for later with tempKeys
-                afe.printStackTrace();
-                continue;
-            }
-
-            if (walletKey != null) {
-                wallet.addKey(walletKey);
-            } else {
-                throw new Exception("Wallet key error");
-            }
-
-        }
-
-        if (payloadManager.isNotUpgraded()) {
-            wallet = new Wallet(MainNetParams.get());
-            List<LegacyAddress> addrs = payloadManager.getPayload().getActiveLegacyAddresses();
-            for (LegacyAddress addr : addrs) {
-                ECKey ecKey = null;
-                if (!isWatchOnly && payloadManager.getPayload().isDoubleEncrypted()) {
-                    ecKey = addr.getECKey(new CharSequenceX(secondPassword));
-                } else {
-                    ecKey = addr.getECKey();
-                }
-                if (addr != null && ecKey != null && ecKey.hasPrivKey()) {
-                    wallet.addKey(ecKey);
-                }
-            }
-        }
+        wallet.importKeys(keys);
 
         SendCoins.getInstance().signTx(tx, wallet);
         String hexString = SendCoins.getInstance().encodeHex(tx);
@@ -298,18 +229,6 @@ public class Payment {
         if (response.contains("Transaction Submitted")) {
 
             listener.onSuccess(tx.getHashAsString());
-
-            if (note != null && note.length() > 0) {
-                Map<String, String> notes = payloadManager.getPayload().getNotes();
-                notes.put(tx.getHashAsString(), note);
-                payloadManager.getPayload().setNotes(notes);
-            }
-
-            if (account != null) {
-                // increment change address counter
-                account.incChange();
-            }
-
         } else {
             listener.onFail(response);
         }

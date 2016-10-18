@@ -22,6 +22,9 @@ public class Chain {
     static private final int DESIRED_MARGIN = 32;
     static private final int ADDRESS_GAP_MAX = 20;
 
+    public static final int RECEIVE_CHAIN = 0;
+    public static final int CHANGE_CHAIN = 1;
+
     private NetworkParameters params = null;
 
     private Chain() { ; }

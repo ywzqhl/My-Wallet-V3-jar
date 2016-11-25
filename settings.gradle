@@ -1,1 +1,3 @@
 rootProject.name = 'MyWalletHD'
+include 'mywallethd'
+
